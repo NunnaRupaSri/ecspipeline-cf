@@ -1,159 +1,99 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS CloudFormation template for an ECS Fargate cluster, service, and load balancer.
+AWSTemplateVersion: '2010-09-09'
+Description: Provisions ECS cluster, service, and load balancer.
 
 Parameters:
-  ProjectName:
-    Type: String
-    Description: A name that will be prefixed to the resource names.
-    Default: 'my-ecs-app'
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: The ID of the VPC where the cluster will be deployed.
-  Subnets:
-    Type: 'List<AWS::EC2::Subnet::Id>'
-    Description: The list of private subnets for the ECS service.
-  AlbSecurityGroupId:
-    Type: String
-    Description: The security group ID for the ALB.
-  AppSecurityGroupId:
-    Type: String
-    Description: The security group ID for the ECS tasks.
-  ContainerName:
-    Type: String
-    Description: The name of the container in the task definition.
-  ECRRepoName:
-    Type: String
-    Description: The name of the ECR repository.
-  AppPort:
-    Type: Number
-    Default: 8080
-    Description: The port the application container listens on.
+  ProjectName: { Type: String, Default: 'ecs-static-app' }
+  VpcId: { Type: AWS::EC2::VPC::Id }
+  Subnets: { Type: 'List<AWS::EC2::Subnet::Id>' }
+  ContainerName: { Type: String, Default: 'nginx-container' }
+  EcrRepoName: { Type: String, Default: 'static-website' }
 
 Resources:
-  # ECS Cluster
-  ECSCluster:
+  VpcSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-SG'
+      GroupDescription: Enable HTTP access on port 80.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  
+  EcsCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub '${ProjectName}-cluster'
-      
-  # Application Load Balancer
-  ALB:
+
+  Alb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
+      Name: !Sub '${ProjectName}-alb'
       Scheme: internet-facing
       Subnets: !Ref Subnets
-      SecurityGroups:
-        - !Ref AlbSecurityGroupId
 
-  # ALB Listener
-  ALBListener:
+  AlbListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
         - Type: fixed-response
-          FixedResponseConfig:
-            ContentType: text/plain
-            MessageBody: 'Placeholder'
-            StatusCode: '200'
-      LoadBalancerArn: !Ref ALB
+          FixedResponseConfig: { ContentType: 'text/plain', MessageBody: 'Placeholder', StatusCode: '200' }
+      LoadBalancerArn: !Ref Alb
       Port: 80
       Protocol: HTTP
 
-  # ALB Target Group
-  ALBTargetGroupBlue:
+  AlbTargetGroupBlue:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub '${ProjectName}-tg-blue'
-      Port: !Ref AppPort
+      Port: 80
       Protocol: HTTP
       VpcId: !Ref VpcId
       TargetType: ip
-      HealthCheckPath: /
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 2
-      Matcher:
-        HttpCode: '200'
 
-  # ECS Task Definition (Fargate)
-  ECSTaskDefinition:
+  EcsTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub '${ProjectName}-task-definition'
-      RequiresCompatibilities:
-        - FARGATE
+      RequiresCompatibilities: [FARGATE]
       NetworkMode: awsvpc
       Cpu: '256'
       Memory: '512'
-      ExecutionRoleArn: !ImportValue !Sub '${ProjectName}-ECSTaskExecutionRoleArn'
-      TaskRoleArn: !ImportValue !Sub '${ProjectName}-ECSTaskRoleArn'
+      ExecutionRoleArn: !ImportValue 'EcsTaskExecutionRoleArn'
+      TaskRoleArn: !ImportValue 'EcsTaskRoleArn'
       ContainerDefinitions:
         - Name: !Ref ContainerName
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoName}:latest' # Placeholder image
-          Essential: true
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}:latest'
           PortMappings:
-            - ContainerPort: !Ref AppPort
+            - ContainerPort: 80
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref CloudWatchLogGroup
+              awslogs-group: '/ecs/static-website'
               awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: !Ref ProjectName
+              awslogs-stream-prefix: 'ecs'
 
-  # ECS Service for CodeDeploy
-  ECSService:
+  EcsService:
     Type: AWS::ECS::Service
     Properties:
       ServiceName: !Sub '${ProjectName}-service'
-      Cluster: !Ref ECSCluster
-      DeploymentController:
-        Type: CODE_DEPLOY
+      Cluster: !Ref EcsCluster
+      DeploymentController: { Type: 'CODE_DEPLOY' }
       LaunchType: FARGATE
-      TaskDefinition: !Ref ECSTaskDefinition
+      TaskDefinition: !Ref EcsTaskDefinition
       DesiredCount: 1
       LoadBalancers:
         - ContainerName: !Ref ContainerName
-          ContainerPort: !Ref AppPort
-          TargetGroupArn: !Ref ALBTargetGroupBlue
+          ContainerPort: 80
+          TargetGroupArn: !Ref AlbTargetGroupBlue
       NetworkConfiguration:
         AwsvpcConfiguration:
           Subnets: !Ref Subnets
-          AssignPublicIp: DISABLED
-          SecurityGroups:
-            - !Ref AppSecurityGroupId
-      Tags:
-        - Key: project
-          Value: !Ref ProjectName
-          
-  # CloudWatch Log Group
-  CloudWatchLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/ecs/${ProjectName}'
-      RetentionInDays: 7
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref VpcSecurityGroup]
 
 Outputs:
-  ECSClusterName:
-    Description: Name of the ECS cluster.
-    Value: !Ref ECSCluster
-    Export:
-      Name: !Sub '${ProjectName}-ECSCluster'
-
-  ECSServiceName:
-    Description: Name of the ECS service.
-    Value: !Ref ECSService
-    Export:
-      Name: !Sub '${ProjectName}-ECSService'
-
-  ALBListenerArn:
-    Description: ARN of the ALB listener.
-    Value: !Ref ALBListener
-    Export:
-      Name: !Sub '${ProjectName}-ALBListenerArn'
-
-  ALBTargetGroupBlueArn:
-    Description: ARN of the blue ALB target group.
-    Value: !Ref ALBTargetGroupBlue
-    Export:
-      Name: !Sub '${ProjectName}-ALBTargetGroupBlueArn'
+  ECSClusterName: { Value: !Ref EcsCluster, Export: { Name: 'ECSClusterName' } }
+  ECSServiceName: { Value: !Ref EcsService, Export: { Name: 'ECSServiceName' } }
+  ALBListenerArn: { Value: !Ref AlbListener, Export: { Name: 'ALBListenerArn' } }
