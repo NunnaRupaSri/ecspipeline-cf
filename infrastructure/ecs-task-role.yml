@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template for ECS task IAM roles.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: A name that will be prefixed to the resource names.
+    Default: 'my-ecs-app'
+
+Resources:
+  # IAM role for the ECS tasks (allows the task to perform AWS actions)
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: ECS-Task-Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                  # Add other necessary permissions for your application (e.g., dynamodb:*)
+                Resource: '*'
+
+  # IAM role for the ECS service to perform actions on your behalf (e.g., pull ECR image)
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+Outputs:
+  ECSTaskRoleArn:
+    Description: ARN of the ECS Task Role.
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-ECSTaskRoleArn'
+
+  ECSTaskExecutionRoleArn:
+    Description: ARN of the ECS Task Execution Role.
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-ECSTaskExecutionRoleArn'
