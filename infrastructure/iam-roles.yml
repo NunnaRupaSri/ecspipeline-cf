@@ -1,0 +1,65 @@
+AWSTemplateVersion: '2010-09-09'
+Description: Provisions IAM roles for the ECS pipeline and deployment.
+
+Resources:
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codepipeline.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AdministratorAccess' # For simplicity; use restrictive permissions in production
+        - 'arn:aws:iam::aws:policy/CodeDeployFullAccess'
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AdministratorAccess' # For simplicity; use restrictive permissions in production
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser'
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'EcsTaskPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: '*' # Use more restrictive permissions
+                Resource: '*'
+
+Outputs:
+  PipelineRoleArn: { Value: !GetAtt PipelineRole.Arn, Export: { Name: 'PipelineRoleArn' } }
+  CodeBuildRoleArn: { Value: !GetAtt CodeBuildRole.Arn, Export: { Name: 'CodeBuildRoleArn' } }
+  EcsTaskExecutionRoleArn: { Value: !GetAtt EcsTaskExecutionRole.Arn, Export: { Name: 'EcsTaskExecutionRoleArn' } }
+  EcsTaskRoleArn: { Value: !GetAtt EcsTaskRole.Arn, Export: { Name: 'EcsTaskRoleArn' } }
